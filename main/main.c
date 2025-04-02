@@ -15,6 +15,7 @@ bool reset = 0;
 float cuenta = 0;
 bool startUltimo = 0;
 bool resetUltimo = 0;
+bool ledBlink = 0;
 TaskHandle_t taskHandle1;
 
 void configPin(gpio_num_t pin, gpio_mode_t modo) {
@@ -33,7 +34,7 @@ void configLCD() {
     pcd8544_clear_display();
     pcd8544_finalize_frame_buf();
 }
-void reloj (void * argumentos){
+void baseTime (void * argumentos){
     while (1) {
         if(reset){
             cuenta = 0;
@@ -44,17 +45,21 @@ void reloj (void * argumentos){
     }
     
 }
-void showTime(void * argumentos){
+void showTime(void * argumentos){ //utilizar delayUntil.
     while (1) {
+        if(reset){//Limpia la pantalla pero solo cuando esta en pause
+            pcd8544_clear_display();
+            pcd8544_finalize_frame_buf();
+        }
         float segundos = cuenta*0.001;
         pcd8544_set_pos(10,2);
         pcd8544_printf("seg: %2.2f%", segundos);
         pcd8544_sync_and_gc();
-        vTaskDelay(pdMS_TO_TICKS(50));  // Esperar 50 milisegundos
+        vTaskDelay(pdMS_TO_TICKS(50)); 
     }
 }
 
-void leerPin(void * argumentos){
+void readKey(void * argumentos){
     while (1) {
         
         bool startActual = gpio_get_level(PIN_START);
@@ -77,7 +82,7 @@ void leerPin(void * argumentos){
     }
 }
 
-void processKey (void * argumentos){ 
+void processTask (void * argumentos){ 
     while (1) {
         if (estado == 1){
         
@@ -91,25 +96,22 @@ void processKey (void * argumentos){
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(500)); 
+        vTaskDelay(pdMS_TO_TICKS(100)); 
     }
 }
 
 void Blinking(void * argumentos) {
-   
-    gpio_set_level(LED_VERDE, 0);
-
-    vTaskDelay(pdMS_TO_TICKS(500));
-    while (1) {
+   while (1) {
         if(!estado){
         gpio_set_level(LED_ROJO, 0); //Apagamos el LED ROJO 
         
-        gpio_set_level(LED_VERDE, 1);
-        vTaskDelay(pdMS_TO_TICKS(500));
-    
-        gpio_set_level(LED_VERDE, 0);
+        ledBlink = !ledBlink;
+        gpio_set_level(LED_VERDE, ledBlink);
         vTaskDelay(pdMS_TO_TICKS(500));
     } else {
+        ledBlink = 0; //Apagamos el LED Verde
+        gpio_set_level(LED_VERDE, ledBlink);
+
         gpio_set_level(LED_ROJO, 1);
         vTaskDelay(pdMS_TO_TICKS(100));  
     }
@@ -123,9 +125,9 @@ void app_main() {
     configPin(LED_ROJO,GPIO_MODE_OUTPUT);
     configPin(LED_VERDE,GPIO_MODE_OUTPUT);
 
-    xTaskCreate(leerPin, "keyboard", 2048, NULL, tskIDLE_PRIORITY+2, NULL);
+    xTaskCreate(readKey, "keys", 2048, NULL, tskIDLE_PRIORITY+2, NULL);
     xTaskCreate(Blinking, "Led", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
     xTaskCreate(showTime, "show", 2048, NULL, tskIDLE_PRIORITY + 3, NULL);
-    xTaskCreate(reloj, "reloj", 2048, NULL, tskIDLE_PRIORITY + 4, &taskHandle1);
-    xTaskCreate(processKey, "process", 2048, NULL, tskIDLE_PRIORITY+5, NULL);
+    xTaskCreate(baseTime, "reloj", 2048, NULL, tskIDLE_PRIORITY + 4, &taskHandle1);
+    xTaskCreate(processTask, "process", 2048, NULL, tskIDLE_PRIORITY+5, NULL);
 }
