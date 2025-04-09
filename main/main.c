@@ -14,11 +14,13 @@
 bool estado = 1;
 bool reset = 0;
 uint32_t cuenta = 0;
-bool Suspended = false;
+bool Suspended = true;
 bool ledBlink = 0;
 TaskHandle_t taskHandle1;
 SemaphoreHandle_t mutexEstado;
-
+SemaphoreHandle_t mutexCuenta;
+SemaphoreHandle_t mutexReset;
+SemaphoreHandle_t mutexSuspend;
 
 void configPin(gpio_num_t pin, gpio_mode_t modo) {
     gpio_set_direction(pin, modo);
@@ -40,30 +42,37 @@ void baseTime (void * argumentos){
     TickType_t ultimoTiempo = xTaskGetTickCount();
     
     while (1) {
+        xSemaphoreTake(mutexSuspend, portMAX_DELAY);
+          bool  LocalSuspended =  Suspended;
+          
+        xSemaphoreGive(mutexSuspend);
+
         vTaskDelayUntil(&ultimoTiempo,pdMS_TO_TICKS(100));
         
-        xSemaphoreTake(mutexEstado, portMAX_DELAY);
-        if(!Suspended){
-            cuenta += 100;
+        if(!LocalSuspended){
+            xSemaphoreTake(mutexCuenta, portMAX_DELAY);
+                cuenta += 100;
+            xSemaphoreGive(mutexCuenta);
         }
-        xSemaphoreGive(mutexEstado);
+        
     }
     
 }
 void showTime(void * argumentos){ 
     TickType_t ultimoTiempo = xTaskGetTickCount();
     while (1) {
-        xSemaphoreTake(mutexEstado, portMAX_DELAY);
+        xSemaphoreTake(mutexReset, portMAX_DELAY);
             bool resetLocal = reset;
-        xSemaphoreGive(mutexEstado);
+        xSemaphoreGive(mutexReset);
         
         if(resetLocal){
             pcd8544_clear_display();
             pcd8544_finalize_frame_buf();
         }
-        xSemaphoreTake(mutexEstado, portMAX_DELAY);
+        xSemaphoreTake(mutexCuenta, portMAX_DELAY);
             float segundos = cuenta * 0.001;
-        xSemaphoreGive(mutexEstado);
+        xSemaphoreGive(mutexCuenta);
+
         pcd8544_set_pos(10,2);
         pcd8544_printf("seg: %2.2f%", segundos);
         pcd8544_sync_and_gc();
@@ -88,9 +97,9 @@ void readKey(void * argumentos){
         }
         
         if (resetUltimo == 1 && resetActual == 0) {
-            xSemaphoreTake(mutexEstado, portMAX_DELAY);
+            xSemaphoreTake(mutexReset, portMAX_DELAY);
                 reset = 1;
-            xSemaphoreGive(mutexEstado);
+            xSemaphoreGive(mutexReset);
             vTaskDelay(pdMS_TO_TICKS(100));  
         }
         startUltimo = startActual;
@@ -105,23 +114,35 @@ void processTask (void * argumentos){
 
     while (1) {
         xSemaphoreTake(mutexEstado, portMAX_DELAY);
-        if (estado == 1 && !Suspended) {
+            bool estadoLocal = estado;
+        xSemaphoreGive(mutexEstado);
+        
+        xSemaphoreTake(mutexSuspend, portMAX_DELAY);
+            bool suspendedLocal = Suspended;
+        xSemaphoreGive(mutexSuspend);
+       
+        if (estadoLocal && !suspendedLocal) {
            // vTaskSuspend(taskHandle1);
-            Suspended = true;
+            xSemaphoreTake(mutexSuspend, portMAX_DELAY);
+                Suspended = true;
+            xSemaphoreGive(mutexSuspend);
         }
-        else if (estado != 1 && Suspended) {
+        else if (!estadoLocal && suspendedLocal) {
            // vTaskResume(taskHandle1);
-            Suspended = false;
+            xSemaphoreTake(mutexSuspend, portMAX_DELAY);
+                Suspended = false;
+            xSemaphoreGive(mutexSuspend);
         }
         
-        else if (reset == 1 && Suspended) {
-            cuenta = 0;
-            reset = 0;
+        if (reset == 1 && Suspended) {
+            xSemaphoreTake(mutexCuenta, portMAX_DELAY);
+                cuenta = 0;
+            xSemaphoreGive(mutexCuenta);
         }
-        else {
-            reset = 0;
-        }
-        xSemaphoreGive(mutexEstado);
+            xSemaphoreTake(mutexReset, portMAX_DELAY);
+                reset = 0;
+            xSemaphoreGive(mutexReset);
+        
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -151,16 +172,18 @@ void Blinking(void * argumentos) {
 
 void app_main() {
     mutexEstado = xSemaphoreCreateMutex();
-    
+    mutexCuenta = xSemaphoreCreateMutex();
+    mutexReset = xSemaphoreCreateMutex();
+    mutexSuspend = xSemaphoreCreateMutex();
     configLCD();
     configPin(PIN_START,GPIO_MODE_INPUT);
     configPin(PIN_RESET,GPIO_MODE_INPUT);
     configPin(LED_ROJO,GPIO_MODE_OUTPUT);
     configPin(LED_VERDE,GPIO_MODE_OUTPUT);
 
-    xTaskCreate(readKey, "keys", 2048, NULL, tskIDLE_PRIORITY+3, NULL);
+    xTaskCreate(readKey, "keys", 2048, NULL, tskIDLE_PRIORITY + 3, NULL);
     xTaskCreate(Blinking, "Led", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
-    xTaskCreate(showTime, "show", 2048, NULL, tskIDLE_PRIORITY + 2, NULL);
+    xTaskCreate(showTime, "show", 2048, NULL, tskIDLE_PRIORITY + 3, NULL);
     xTaskCreate(baseTime, "reloj", 2048, NULL, tskIDLE_PRIORITY + 4, &taskHandle1);
-    xTaskCreate(processTask, "process", 2048, NULL, tskIDLE_PRIORITY+5, NULL);
+    xTaskCreate(processTask, "process", 2048, NULL, tskIDLE_PRIORITY + 3, NULL);
 }
