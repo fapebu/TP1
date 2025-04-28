@@ -15,7 +15,7 @@ void tareaTeclado(void *arg){
         while(gpio_get_level(gpio) != 0){
             
             vTaskDelay(pdMS_TO_TICKS(150));
-            printf("presionado\n");
+            
         }
         xEventGroupSetBits(eventGroup, eventBits);
         

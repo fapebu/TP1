@@ -9,6 +9,9 @@
     "idf.portWin": "COM12",
     "idf.flashType": "UART",
     "files.associations": {
-        "task.h": "c"
+        "task.h": "c",
+        "event_groups.h": "c",
+        "freertos.h": "c",
+        "time.h": "c"
     }
 }

@@ -7,6 +7,8 @@
 #include "driver/spi_common.h"
 #include "freertos/event_groups.h"
 #include "teclado.h"
+#include "time.h"
+#include "freertos/queue.h"
 
 #define PIN_START GPIO_NUM_22  
 #define PIN_RESET GPIO_NUM_21
@@ -16,25 +18,18 @@
 #define BIT_START (1 << 0)
 #define BIT_RESET (1 << 1)
 #define BIT_PARCIAL (1 << 2)
+#define BIT_STOP (1 << 3)
+#define BIT_RUN (1 << 4)
 
-uint32_t cuenta = 0;
 
-bool ledBlink = 0;
 TaskHandle_t taskHandle1;
-SemaphoreHandle_t flags_mutex;
-SemaphoreHandle_t cuenta_mutex;
 EventGroupHandle_t eventGroup;
-typedef struct {
-    bool startPressed;  
-    bool resetPressed;  
-    bool running;       
-} app_flags_t;
 
-static app_flags_t flags = {
-    .startPressed = true,
-    .resetPressed = false,
-    .running      = false
-};
+static EventGroupHandle_t shared_event_group;
+static time_task_t time_task_args;
+static QueueHandle_t laps;
+static QueueHandle_t timeQueue;
+
 
 void configPin(gpio_num_t pin, gpio_mode_t modo) {
     gpio_set_direction(pin, modo);
@@ -52,44 +47,34 @@ void configLCD() {
     pcd8544_clear_display();
     pcd8544_finalize_frame_buf();
 }
-void baseTime (void * argumentos){
-    TickType_t ultimo = xTaskGetTickCount();
-    while (1) {
-        xSemaphoreTake(flags_mutex, portMAX_DELAY);
-          bool run = flags.running;
-        xSemaphoreGive(flags_mutex);
-        
-        vTaskDelayUntil(&ultimo, pdMS_TO_TICKS(100));
-        if (run) {
-            xSemaphoreTake(cuenta_mutex, pdMS_TO_TICKS(50));
-              cuenta += 100;
-              
-            xSemaphoreGive(cuenta_mutex);
-        }
-    }
-    
-}
+
 void showTime(void * argumentos){ 
     TickType_t ultimo = xTaskGetTickCount();
+    uint32_t lapTimes[3] = {0.0f, 0.0f, 0.0f};
+    
+    static uint32_t segundos = 0;
+    static int i = 0; 
     while (1) {
-      
-        bool resetLocal = false;
-        xSemaphoreTake(flags_mutex, portMAX_DELAY);
-        resetLocal = flags.resetPressed;
-        xSemaphoreGive(flags_mutex);
-
-        if (resetLocal) {
-            pcd8544_clear_display();
-            pcd8544_finalize_frame_buf();
-        }
-        uint32_t cuentaLocal;
-        xSemaphoreTake(cuenta_mutex, portMAX_DELAY);
-           cuentaLocal = cuenta;
-        xSemaphoreGive(cuenta_mutex);
-
-        float segundos = cuentaLocal * 0.001;
-        pcd8544_set_pos(10,2);
-        pcd8544_printf("seg: %2.2f", segundos);
+        /*pcd8544_clear_display();
+        pcd8544_finalize_frame_buf(); */
+        xQueueReceive(timeQueue, &segundos, 50);
+        if (uxQueueMessagesWaiting(laps) > 0) {
+                if(i >= 3) {
+                    i = 0;
+                }
+                xQueueReceive(laps, &lapTimes[i], 0);
+                i++;
+                
+            }
+        
+        pcd8544_set_pos(10,1);
+        pcd8544_printf("Tiempo: %2.2f", segundos* 0.001);
+        pcd8544_set_pos(10,3);
+        pcd8544_printf("Lap1: %2.2f", lapTimes[0]* 0.001);
+        pcd8544_set_pos(10,4);
+        pcd8544_printf("Lap2: %2.2f", lapTimes[1]* 0.001);
+        pcd8544_set_pos(10,5);
+        pcd8544_printf("Lap3: %2.2f", lapTimes[2]* 0.001);
         pcd8544_sync_and_gc();
         vTaskDelayUntil(&ultimo, pdMS_TO_TICKS(100));
     }
@@ -98,67 +83,51 @@ void showTime(void * argumentos){
 void readKey(void * argumentos){
        while (1) {
               
-        EventBits_t bits = xEventGroupWaitBits(eventGroup,BIT_START|BIT_RESET,pdTRUE,pdFALSE,portMAX_DELAY);
-               
+        EventBits_t bits = xEventGroupWaitBits(eventGroup,BIT_START|BIT_RESET|BIT_PARCIAL,pdTRUE,pdFALSE,portMAX_DELAY);
+               static bool runLocal = false;
                 if (BIT_START & bits) {
-                    printf("Start\n");
-                    xSemaphoreTake(flags_mutex, portMAX_DELAY);
-                      flags.startPressed = !flags.startPressed;
-                    xSemaphoreGive(flags_mutex);
+                    if(runLocal == false) {
+                        runLocal = true;
+                        xEventGroupSetBits(time_task_args.event,time_task_args.start);
+                    }
+                    else {
+                        runLocal = false;
+                        xEventGroupSetBits(time_task_args.event,time_task_args.stop);
+                    } 
                     vTaskDelay(pdMS_TO_TICKS(50));
                 }
         
                 if (BIT_RESET & bits) {
                     printf("reset\n");
-                    xSemaphoreTake(flags_mutex, portMAX_DELAY);
-                      flags.resetPressed = true;
-                    xSemaphoreGive(flags_mutex);
+                    xEventGroupSetBits(time_task_args.event,time_task_args.reset);
                     vTaskDelay(pdMS_TO_TICKS(50));
                 }
-        
+                if (BIT_PARCIAL & bits) {
+                    printf("parcial\n");
+                    xEventGroupSetBits(time_task_args.event,time_task_args.parcial);
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
                 vTaskDelay(pdMS_TO_TICKS(10));
             }
         }
-void processTask (void * argumentos){
-    
-    while (1) {
-            
-            bool startLocal, runLocal, resetLocal;
-    
-            xSemaphoreTake(flags_mutex, portMAX_DELAY);
-                startLocal    = flags.startPressed;
-                runLocal = flags.running;
-                resetLocal = flags.resetPressed;
-            xSemaphoreGive(flags_mutex);
-    
-            if (startLocal && runLocal) {
-                    runLocal = false;
-            }
-            else if (!startLocal && !runLocal) { 
-                        runLocal = true; 
-            }
-            if (resetLocal == 1 && !runLocal) {
-                xSemaphoreTake(cuenta_mutex, portMAX_DELAY);
-                 cuenta = 0;
-                xSemaphoreGive(cuenta_mutex);
-            }
-            xSemaphoreTake(flags_mutex, portMAX_DELAY);
-                 flags.startPressed = startLocal;
-                 flags.running = runLocal;
-                 flags.resetPressed = false;
-            xSemaphoreGive(flags_mutex);
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-    }
+
 
 void Blinking(void * argumentos) {
-    bool startLocal;
-    while (1) {
-        xSemaphoreTake(flags_mutex,portMAX_DELAY);
-        startLocal = flags.startPressed;  
-        xSemaphoreGive(flags_mutex);
+    static bool runLocal = false;
+    static  bool ledBlink = false;
+    static TickType_t lastEventTime = 0;  // Variable para guardar el último tiempo de evento
+    const TickType_t timeout = pdMS_TO_TICKS(200);  // Tiempo en milisegundos sin evento para cambiar a ROJO
 
-        if(!startLocal){
+    while (1) {
+    EventBits_t bits = xEventGroupWaitBits(shared_event_group,BIT_RUN,pdTRUE,pdFALSE,pdMS_TO_TICKS(50));
+              if (BIT_RUN & bits) {
+                runLocal = true;
+                lastEventTime = xTaskGetTickCount();
+              }
+              if (xTaskGetTickCount() - lastEventTime >= timeout) {
+                runLocal = false;  
+            }
+      if(runLocal){
             gpio_set_level(LED_ROJO, 0); //Apagamos el LED ROJO 
             ledBlink = !ledBlink;
             gpio_set_level(LED_VERDE, ledBlink);
@@ -175,10 +144,7 @@ void Blinking(void * argumentos) {
 }
 
 void app_main() {
-    flags_mutex = xSemaphoreCreateMutex();
-    cuenta_mutex = xSemaphoreCreateMutex();
-   // EventGroupHandle_t eventGroup; 
-    //EventBits_t keys;
+
     static key_task_t key_args;
 
     configLCD();
@@ -207,9 +173,24 @@ void app_main() {
         key_args.gpio = PIN_PARCIAL;
         xTaskCreate(tareaTeclado, "Tecla3", 2 * configMINIMAL_STACK_SIZE, (void *)&key_args, tskIDLE_PRIORITY + 3, NULL);
     }
+    laps = xQueueCreate(3, sizeof(uint32_t));
+    timeQueue = xQueueCreate(10, sizeof(uint32_t));
+
+    shared_event_group = xEventGroupCreate();
+    time_task_args.event = shared_event_group; // Pasar el handle compartido
+    time_task_args.start = BIT_START;
+    time_task_args.reset = BIT_RESET;
+    time_task_args.parcial = BIT_PARCIAL;
+    time_task_args.stop = BIT_STOP;
+    time_task_args.runing = BIT_RUN;
+    time_task_args.lapsQueue = laps;
+    time_task_args.timeQueue = timeQueue;
+
+    xTaskCreate(TimeTask, "TimeTask", 2 * configMINIMAL_STACK_SIZE, (void *)&time_task_args, tskIDLE_PRIORITY + 3, NULL);
+
     xTaskCreate(readKey, "keys", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
     xTaskCreate(Blinking, "Led", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
-    xTaskCreate(showTime, "show", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
-    xTaskCreate(baseTime, "reloj",2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 5, &taskHandle1);
-    xTaskCreate(processTask, "process", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL); 
+    xTaskCreate(showTime, "show", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
+    //xTaskCreate(baseTime, "reloj",2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 5, &taskHandle1);
+   // xTaskCreate(processTask, "process", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL); 
 }
