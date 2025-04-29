@@ -21,11 +21,16 @@
 #define BIT_STOP (1 << 3)
 #define BIT_RUN (1 << 4)
 
+typedef struct {
+    EventBits_t bit;
+    gpio_num_t gpio;
+    const char *task_name;
+} KeyConfig;
 
 TaskHandle_t taskHandle1;
 EventGroupHandle_t eventGroup;
 
-static EventGroupHandle_t shared_event_group;
+static EventGroupHandle_t eventGroupTime;
 static time_task_t time_task_args;
 static QueueHandle_t laps;
 static QueueHandle_t timeQueue;
@@ -49,35 +54,32 @@ void configLCD() {
 }
 
 void showTime(void * argumentos){ 
-    TickType_t ultimo = xTaskGetTickCount();
+   
     uint32_t lapTimes[3] = {0.0f, 0.0f, 0.0f};
-    
     static uint32_t segundos = 0;
     static int i = 0; 
     while (1) {
         /*pcd8544_clear_display();
         pcd8544_finalize_frame_buf(); */
-        xQueueReceive(timeQueue, &segundos, 50);
+        xQueueReceive(timeQueue, &segundos, portMAX_DELAY); //se blouque hasta que se encolan los datos cada 100ms.
         if (uxQueueMessagesWaiting(laps) > 0) {
                 if(i >= 3) {
                     i = 0;
                 }
-                xQueueReceive(laps, &lapTimes[i], 0);
+                xQueueReceive(laps, &lapTimes[i], 0); //recibimos el dato instantaneamente si esta en la cola si no lo ignoramos y seguimos ejecutando
                 i++;
-                
-            }
+        }
         
         pcd8544_set_pos(10,1);
-        pcd8544_printf("Tiempo: %2.2f", segundos* 0.001);
+        pcd8544_printf("Time:%2.2f", segundos* 0.001);
         pcd8544_set_pos(10,3);
-        pcd8544_printf("Lap1: %2.2f", lapTimes[0]* 0.001);
+        pcd8544_printf("Lap1:%2.2f", lapTimes[0]* 0.001);
         pcd8544_set_pos(10,4);
-        pcd8544_printf("Lap2: %2.2f", lapTimes[1]* 0.001);
+        pcd8544_printf("Lap2:%2.2f", lapTimes[1]* 0.001);
         pcd8544_set_pos(10,5);
-        pcd8544_printf("Lap3: %2.2f", lapTimes[2]* 0.001);
+        pcd8544_printf("Lap3:%2.2f", lapTimes[2]* 0.001);
         pcd8544_sync_and_gc();
-        vTaskDelayUntil(&ultimo, pdMS_TO_TICKS(100));
-    }
+      }
 }
 
 void readKey(void * argumentos){
@@ -94,20 +96,17 @@ void readKey(void * argumentos){
                         runLocal = false;
                         xEventGroupSetBits(time_task_args.event,time_task_args.stop);
                     } 
-                    vTaskDelay(pdMS_TO_TICKS(50));
                 }
         
                 if (BIT_RESET & bits) {
                     printf("reset\n");
                     xEventGroupSetBits(time_task_args.event,time_task_args.reset);
-                    vTaskDelay(pdMS_TO_TICKS(50));
                 }
                 if (BIT_PARCIAL & bits) {
                     printf("parcial\n");
                     xEventGroupSetBits(time_task_args.event,time_task_args.parcial);
-                    vTaskDelay(pdMS_TO_TICKS(50));
                 }
-                vTaskDelay(pdMS_TO_TICKS(10));
+               
             }
         }
 
@@ -115,11 +114,11 @@ void readKey(void * argumentos){
 void Blinking(void * argumentos) {
     static bool runLocal = false;
     static  bool ledBlink = false;
-    static TickType_t lastEventTime = 0;  // Variable para guardar el último tiempo de evento
-    const TickType_t timeout = pdMS_TO_TICKS(200);  // Tiempo en milisegundos sin evento para cambiar a ROJO
+    static TickType_t lastEventTime = 0;  
+    const TickType_t timeout = pdMS_TO_TICKS(150); 
 
     while (1) {
-    EventBits_t bits = xEventGroupWaitBits(shared_event_group,BIT_RUN,pdTRUE,pdFALSE,pdMS_TO_TICKS(50));
+    EventBits_t bits = xEventGroupWaitBits(eventGroupTime,BIT_RUN,pdTRUE,pdFALSE,pdMS_TO_TICKS(50));
               if (BIT_RUN & bits) {
                 runLocal = true;
                 lastEventTime = xTaskGetTickCount();
@@ -128,25 +127,35 @@ void Blinking(void * argumentos) {
                 runLocal = false;  
             }
       if(runLocal){
-            gpio_set_level(LED_ROJO, 0); //Apagamos el LED ROJO 
+            gpio_set_level(LED_ROJO, 0); 
             ledBlink = !ledBlink;
             gpio_set_level(LED_VERDE, ledBlink);
-            vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(450)); //aproximamos a 500ms el tiempo de encendido y apagado del led verde
         }else {
-            ledBlink = 0; //Apagamos el LED Verde
+            ledBlink = 0;
             gpio_set_level(LED_VERDE, ledBlink);
-
             gpio_set_level(LED_ROJO, 1);
-            vTaskDelay(pdMS_TO_TICKS(100));  
+            vTaskDelay(pdMS_TO_TICKS(50));  
         }
   
     }
 }
-
+static void initKeyTasks(EventGroupHandle_t even) {
+    KeyConfig keys[] = {
+        { BIT_START,   PIN_START,   "Tecla1"},
+        { BIT_RESET,   PIN_RESET,   "Tecla2"},
+        { BIT_PARCIAL, PIN_PARCIAL, "Tecla3"}
+    };
+    for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i) {
+        key_task_t args = {
+            .eventGroup = even,
+            .eventBits  = keys[i].bit,
+            .gpio       = keys[i].gpio
+        };
+        xTaskCreate(tareaTeclado,keys[i].task_name,2 * configMINIMAL_STACK_SIZE,&args,tskIDLE_PRIORITY + 3,NULL);
+    }
+}
 void app_main() {
-
-    static key_task_t key_args;
-
     configLCD();
     configPin(PIN_START,GPIO_MODE_INPUT);
     configPin(PIN_RESET,GPIO_MODE_INPUT);
@@ -155,42 +164,27 @@ void app_main() {
     configPin(LED_VERDE,GPIO_MODE_OUTPUT);
 
     eventGroup = xEventGroupCreate();
-    xEventGroupClearBits(eventGroup, BIT_START | BIT_RESET | BIT_PARCIAL);
-    if(eventGroup) {
-       // key_args = malloc(sizeof(struct key_task_t));
-        key_args.eventGroup = eventGroup;
-        key_args.eventBits = BIT_START;
-        key_args.gpio = PIN_START;
-        xTaskCreate(tareaTeclado, "Tecla1", 2 * configMINIMAL_STACK_SIZE, (void *)&key_args, tskIDLE_PRIORITY + 3, NULL);
-        
-        key_args.eventGroup = eventGroup;
-        key_args.eventBits = BIT_RESET;
-        key_args.gpio = PIN_RESET;
-        xTaskCreate(tareaTeclado, "Tecla2", 2 * configMINIMAL_STACK_SIZE, (void *)&key_args, tskIDLE_PRIORITY + 3, NULL);
-        
-        key_args.eventGroup = eventGroup;
-        key_args.eventBits = BIT_PARCIAL;
-        key_args.gpio = PIN_PARCIAL;
-        xTaskCreate(tareaTeclado, "Tecla3", 2 * configMINIMAL_STACK_SIZE, (void *)&key_args, tskIDLE_PRIORITY + 3, NULL);
-    }
+    initKeyTasks(eventGroup); //creamos las tareas de teclado
+
     laps = xQueueCreate(3, sizeof(uint32_t));
     timeQueue = xQueueCreate(10, sizeof(uint32_t));
 
-    shared_event_group = xEventGroupCreate();
-    time_task_args.event = shared_event_group; // Pasar el handle compartido
-    time_task_args.start = BIT_START;
-    time_task_args.reset = BIT_RESET;
-    time_task_args.parcial = BIT_PARCIAL;
-    time_task_args.stop = BIT_STOP;
-    time_task_args.runing = BIT_RUN;
-    time_task_args.lapsQueue = laps;
-    time_task_args.timeQueue = timeQueue;
+    eventGroupTime = xEventGroupCreate();
+ 
+    time_task_args = (time_task_t){
+        .event     = eventGroupTime,
+        .start     = BIT_START,
+        .reset     = BIT_RESET,
+        .parcial   = BIT_PARCIAL,
+        .stop      = BIT_STOP,
+        .runing    = BIT_RUN,
+        .lapsQueue = laps,
+        .timeQueue = timeQueue
+    };
 
-    xTaskCreate(TimeTask, "TimeTask", 2 * configMINIMAL_STACK_SIZE, (void *)&time_task_args, tskIDLE_PRIORITY + 3, NULL);
-
+    xTaskCreate(TimeTask, "TimeTask", 2 * configMINIMAL_STACK_SIZE, (void *)&time_task_args, tskIDLE_PRIORITY + 5, NULL);
     xTaskCreate(readKey, "keys", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
     xTaskCreate(Blinking, "Led", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
     xTaskCreate(showTime, "show", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
-    //xTaskCreate(baseTime, "reloj",2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 5, &taskHandle1);
-   // xTaskCreate(processTask, "process", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL); 
+    
 }

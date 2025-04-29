@@ -14,14 +14,14 @@ void tareaTeclado(void *arg){
     while(1){
         while(gpio_get_level(gpio) != 0){
             
-            vTaskDelay(pdMS_TO_TICKS(150));
+            vTaskDelay(pdMS_TO_TICKS(pdMS_TO_TICKS(150)));
             
         }
         xEventGroupSetBits(eventGroup, eventBits);
         
         while(gpio_get_level(gpio) != 1){
             
-            vTaskDelay(pdMS_TO_TICKS(150));
+            vTaskDelay(pdMS_TO_TICKS(pdMS_TO_TICKS(150)));
         }
     }
 }

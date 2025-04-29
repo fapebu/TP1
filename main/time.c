@@ -17,14 +17,13 @@ while (1) {
         if (events & args->reset) {
             elapsedTime = 0;
             if(args->timeQueue != NULL) {
-                xQueueSend(args->timeQueue, &elapsedTime, 30);
+                xQueueSend(args->timeQueue, &elapsedTime, pdMS_TO_TICKS(30));
             }
         }
         if (events & args->start) {
             runing = true;
         }
      }
-        //elapsedTime = 0;
         last_counter = xTaskGetTickCount();
         xEventGroupClearBits(args->event,args->stop|args->parcial);
         while (runing)
@@ -33,7 +32,7 @@ while (1) {
          vTaskDelayUntil(&last_counter, pdMS_TO_TICKS(100));
          elapsedTime += 100;
          if(args->timeQueue != NULL) {
-            xQueueSend(args->timeQueue, &elapsedTime, 30);
+            xQueueSend(args->timeQueue, &elapsedTime, pdMS_TO_TICKS(30));
             }
          xEventGroupSetBits(args->event,args->runing);
          events = xEventGroupWaitBits(args->event, args->stop|args->parcial, pdTRUE, pdFALSE, 0);
@@ -42,7 +41,7 @@ while (1) {
             }
             if (events & args->parcial) {
                 printf("parcial\n");
-                xQueueSend(args->lapsQueue, &elapsedTime, 30);
+                xQueueSend(args->lapsQueue, &elapsedTime, pdMS_TO_TICKS(30));
             } 
         
         }
