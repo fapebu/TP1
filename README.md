@@ -12,3 +12,6 @@ debe volver a cero.
 
 Mientras la cuenta está activa un led RGB debe parpadear en verde y  
 cuando está detenida debe permanecer en rojo.
+
+## Actualizacion:
+Se Agregan eventos y tiempos parciales.
