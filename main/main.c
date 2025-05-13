@@ -8,6 +8,7 @@
 #include "freertos/event_groups.h"
 #include "teclado.h"
 #include "time.h"
+#include "timeHour.h"
 #include "freertos/queue.h"
 
 #define PIN_START GPIO_NUM_22  
@@ -31,10 +32,13 @@ TaskHandle_t taskHandle1;
 EventGroupHandle_t eventGroup;
 
 static EventGroupHandle_t eventGroupTime;
+static EventGroupHandle_t eventGroupHour;
 static time_task_t time_task_args;
+static hour_task_t hour_task_args;
 static QueueHandle_t laps;
 static QueueHandle_t timeQueue;
-
+static QueueHandle_t HourMinuteQueue;
+SemaphoreHandle_t lcd_mutex;
 
 void configPin(gpio_num_t pin, gpio_mode_t modo) {
     gpio_set_direction(pin, modo);
@@ -51,6 +55,44 @@ void configLCD() {
     pcd8544_set_contrast(26);
     pcd8544_clear_display();
     pcd8544_finalize_frame_buf();
+}
+void showHour(void * argumentos){ 
+   
+    static int minutos = 0;
+    static int horas = 0;
+    while (1) {
+        /*pcd8544_clear_display();
+        pcd8544_finalize_frame_buf(); */
+        xQueueReceive(HourMinuteQueue, &minutos, portMAX_DELAY); //se blouque hasta que se encolan los datos.
+         if(minutos >= 60) {
+            minutos = 0;
+            horas++;
+            xEventGroupSetBits(hour_task_args.event,hour_task_args.reset);
+            if(horas >= 24) {
+                horas = 0;
+            }
+         }
+        if (xSemaphoreTake(lcd_mutex, portMAX_DELAY)) {
+        pcd8544_set_pos(10,0);
+        if(horas < 10) {
+            pcd8544_printf("HORA 0");
+        }
+        else {
+            pcd8544_printf("HORA ");
+        }
+        pcd8544_printf("%d", horas);
+        if(minutos < 10) {
+           pcd8544_printf(":0%d", minutos);
+        }
+        else {
+            pcd8544_printf(":%d", minutos);
+        }
+        
+       //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
+        pcd8544_sync_and_gc();
+         xSemaphoreGive(lcd_mutex);
+      }
+      }
 }
 
 void showTime(void * argumentos){ 
@@ -69,9 +111,9 @@ void showTime(void * argumentos){
                 xQueueReceive(laps, &lapTimes[i], 0); //recibimos el dato instantaneamente si esta en la cola si no lo ignoramos y seguimos ejecutando
                 i++;
         }
-        
-        pcd8544_set_pos(10,1);
-        pcd8544_printf("Time:%2.2f", segundos* 0.001);
+        if (xSemaphoreTake(lcd_mutex, portMAX_DELAY)) {
+        pcd8544_set_pos(10,2);
+        pcd8544_printf("CRON:%2.1f", segundos* 0.001);
         pcd8544_set_pos(10,3);
         pcd8544_printf("Lap1:%2.2f", lapTimes[0]* 0.001);
         pcd8544_set_pos(10,4);
@@ -79,7 +121,9 @@ void showTime(void * argumentos){
         pcd8544_set_pos(10,5);
         pcd8544_printf("Lap3:%2.2f", lapTimes[2]* 0.001);
         pcd8544_sync_and_gc();
-      }
+        xSemaphoreGive(lcd_mutex);
+        }
+    }
 }
 
 void readKey(void * argumentos){
@@ -156,6 +200,7 @@ static void initKeyTasks(EventGroupHandle_t even) {
     }
 }
 void app_main() {
+    lcd_mutex = xSemaphoreCreateMutex();
     configLCD();
     configPin(PIN_START,GPIO_MODE_INPUT);
     configPin(PIN_RESET,GPIO_MODE_INPUT);
@@ -168,9 +213,10 @@ void app_main() {
 
     laps = xQueueCreate(3, sizeof(uint32_t));
     timeQueue = xQueueCreate(10, sizeof(uint32_t));
-
+    HourMinuteQueue = xQueueCreate(10, sizeof(uint32_t));
     eventGroupTime = xEventGroupCreate();
- 
+    eventGroupHour = xEventGroupCreate();
+
     time_task_args = (time_task_t){
         .event     = eventGroupTime,
         .start     = BIT_START,
@@ -182,9 +228,16 @@ void app_main() {
         .timeQueue = timeQueue
     };
 
+     hour_task_args = (hour_task_t){
+        .minQueue = HourMinuteQueue,
+        .event     = eventGroupHour,
+        .reset     = BIT_START,
+    };
+
+    xTaskCreate(HourTask, "HourTask", 2 * configMINIMAL_STACK_SIZE, (void *)&hour_task_args, tskIDLE_PRIORITY + 5, NULL);
     xTaskCreate(TimeTask, "TimeTask", 2 * configMINIMAL_STACK_SIZE, (void *)&time_task_args, tskIDLE_PRIORITY + 5, NULL);
     xTaskCreate(readKey, "keys", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
     xTaskCreate(Blinking, "Led", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
     xTaskCreate(showTime, "show", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
-    
+    xTaskCreate(showHour, "show2", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
 }
