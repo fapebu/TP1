@@ -9,7 +9,10 @@ void HourTask(void *arg){
     EventBits_t events;
     static int segundos = 0;
     static int min = 0;
-    xQueueSend(args->minQueue, &min, portMAX_DELAY);
+    static int hr  = 0;
+    hora_min_t time = { .horas = hr, .minutos = min };
+     hora_min_t alarm = { .horas = hr, .minutos = min };
+    xQueueSend(args->sendQueue, &min, portMAX_DELAY);
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xDelay = pdMS_TO_TICKS(10); // 1 segundo
   
@@ -18,18 +21,32 @@ while (1) {
         vTaskDelayUntil(&xLastWakeTime, xDelay);
          
         segundos++;
-       
-      
-        events = xEventGroupWaitBits(args->event,args->reset, pdTRUE, pdFALSE, 0);
-            if (events & args->reset) {
-                 min = 0;
-            }
-        if (segundos >= 60) {
-            //printf("%d\n",  min);
+       if (segundos >= 60) {
             segundos = 0;
-            min++;
+                min++;
+            if (min >= 60) {
+                min = 0;
+                hr = (hr + 1) % 24;
+            }
+            // Prepara y envía la hora completa
+            if(xQueueReceive(args->receiveQueue, &time, 0)){
 
-        xQueueSend(args->minQueue, &min, portMAX_DELAY);
+                  hr = time.horas ;
+                  min = time.minutos;
+                   printf("Hora");
+                   printf("%d",  hr);
+                   printf("%d\n",  min);
+            }
+            xQueueReceive(args->receiveAlarmQueue, &alarm, 0);
+            if(hr == alarm.horas && min == alarm.minutos && alarm.horas != 0 && alarm.minutos != 0) {
+                xEventGroupSetBits(args->eventAlarm, args->start);
+                printf("alarma\n");
+            }    
+                
+                time.horas   = hr;
+                time.minutos = min;
+               
+            xQueueSend(args->sendQueue, &time, portMAX_DELAY);
         }
     }
         

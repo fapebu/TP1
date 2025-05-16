@@ -7,10 +7,20 @@
 
 typedef struct hour_task_t{
    
-    QueueHandle_t minQueue;
-    EventGroupHandle_t event;
+    QueueHandle_t sendQueue;
+    QueueHandle_t receiveQueue;
+    QueueHandle_t receiveAlarmQueue;
+    EventGroupHandle_t eventTime;
+    EventGroupHandle_t eventAlarm;
+    uint8_t start;
     uint8_t reset;
+    uint8_t posponer;
     
 }hour_task_t;
+
+typedef struct {
+    int horas;
+    int minutos;
+} hora_min_t;
 
 void HourTask(void *arg);
