@@ -102,6 +102,7 @@ void showHour(void * argumentos){
        //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
         pcd8544_sync_and_gc();
          xSemaphoreGive(lcd_mutex);
+         vTaskDelay(pdMS_TO_TICKS(50));
       }
     }
       }
@@ -139,6 +140,7 @@ void showTime(void * argumentos){
         pcd8544_printf("Lap3:%2.2f", lapTimes[2]* 0.001);
         pcd8544_sync_and_gc();
         xSemaphoreGive(lcd_mutex);
+        vTaskDelay(pdMS_TO_TICKS(50));
         }
     }
     }
@@ -151,22 +153,24 @@ void Alarm(void * argumentos){
 
     while (1) {
         
-    EventBits_t bits = xEventGroupWaitBits(eventGroupAlarm,BIT_START|BIT_RESET|BIT_PARCIAL,pdTRUE,pdFALSE,portMAX_DELAY);
+    EventBits_t bits = xEventGroupWaitBits(eventGroupAlarm,BIT_START|BIT_RESET|BIT_PARCIAL,pdTRUE,pdFALSE,0);
         if (BIT_START & bits) {
            setLocal = true;
         }
         if (BIT_RESET & bits) {
-            
+            setLocal = false;
+            setAlarm = false;
         }
         
         if (BIT_PARCIAL & bits) {
            
         }
-            if(setLocal){
+        if(setLocal){
             setAlarm = !setAlarm;
             gpio_set_level(PIN_BUZZ, setAlarm); 
-            vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
+        vTaskDelay(pdMS_TO_TICKS(10));
         }
 }
 
@@ -177,7 +181,7 @@ void setHour(void * argumentos){
     static int horas = 0;
   while (1) {
         
-    EventBits_t bits = xEventGroupWaitBits(eventGroupSetHour,BIT_START|BIT_RESET|BIT_PARCIAL,pdTRUE,pdFALSE,portMAX_DELAY);
+    EventBits_t bits = xEventGroupWaitBits(eventGroupSetHour,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE,pdTRUE,pdFALSE,portMAX_DELAY);
         if (BIT_START & bits) {
             if(minutos >= 60) {
                 minutos = 0;
@@ -200,6 +204,28 @@ void setHour(void * argumentos){
             pcd8544_set_pos(12,4);
             pcd8544_printf("ACTUALIZADO");
             pcd8544_sync_and_gc();
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if(BIT_MODE & bits) {
+            pcd8544_set_pos(7,0);
+        pcd8544_printf("CONFIG HORA");
+        pcd8544_set_pos(12,3);
+        if(horas < 10) {
+            pcd8544_printf("0");
+        }
+        else {
+            pcd8544_printf(" ");
+        }
+        pcd8544_printf("%d", horas);
+        if(minutos < 10) {
+           pcd8544_printf(":0%d", minutos);
+        }
+        else {
+            pcd8544_printf(":%d", minutos);
+        }
+        
+       //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
+        pcd8544_sync_and_gc();
         }
        
          
@@ -229,8 +255,10 @@ void setHour(void * argumentos){
        //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
         pcd8544_sync_and_gc();
         xSemaphoreGive(lcd_mutex);
+        vTaskDelay(pdMS_TO_TICKS(50));
         }
         }
+         vTaskDelay(pdMS_TO_TICKS(10));
       }
     }
 
@@ -238,10 +266,8 @@ void setAlarm(void * argumentos){
   int configLocal = false;
     static int minutos = 0;
     static int horas = 0;
-
-while (1) {
-        
-    EventBits_t bits = xEventGroupWaitBits(eventGroupSetAlarm,BIT_START|BIT_RESET|BIT_PARCIAL,pdTRUE,pdFALSE,portMAX_DELAY);
+    while (1) {
+        EventBits_t bits = xEventGroupWaitBits(eventGroupSetAlarm,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE,pdTRUE,pdFALSE,portMAX_DELAY);
         if (BIT_START & bits) {
            if(minutos >= 60) {
                 minutos = 0;
@@ -265,6 +291,26 @@ while (1) {
             pcd8544_set_pos(12,4);
             pcd8544_printf("GUARDADO");
             pcd8544_sync_and_gc();
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+         if (BIT_MODE & bits) {
+           pcd8544_set_pos(7,0);
+                pcd8544_printf("CONFIG ALARM");
+                pcd8544_set_pos(12,3);
+                if(horas < 10) {
+                    pcd8544_printf("0");
+                }
+            else {
+                pcd8544_printf(" ");
+            }
+            pcd8544_printf("%d", horas);
+            if(minutos < 10) {
+                pcd8544_printf(":0%d", minutos);
+            }
+            else {
+                pcd8544_printf(":%d", minutos);
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
         }
             
         
@@ -272,30 +318,31 @@ while (1) {
             configLocal = configMode;
         xSemaphoreGive(config_mutex);
         if(configLocal == 2) {
-        if (xSemaphoreTake(lcd_mutex, portMAX_DELAY)) {
-        
-        pcd8544_set_pos(7,0);
-        pcd8544_printf("CONFIG ALARM");
-        pcd8544_set_pos(12,3);
-        if(horas < 10) {
-            pcd8544_printf("0");
-        }
-        else {
-            pcd8544_printf(" ");
-        }
-        pcd8544_printf("%d", horas);
-        if(minutos < 10) {
-           pcd8544_printf(":0%d", minutos);
-        }
-        else {
-            pcd8544_printf(":%d", minutos);
-        }
+            if (xSemaphoreTake(lcd_mutex, portMAX_DELAY)) {
+                pcd8544_set_pos(7,0);
+                pcd8544_printf("CONFIG ALARM");
+                pcd8544_set_pos(12,3);
+                if(horas < 10) {
+                    pcd8544_printf("0");
+                }
+            else {
+                pcd8544_printf(" ");
+            }
+            pcd8544_printf("%d", horas);
+            if(minutos < 10) {
+                pcd8544_printf(":0%d", minutos);
+            }
+            else {
+                pcd8544_printf(":%d", minutos);
+            }
         
        //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
-        pcd8544_sync_and_gc();
-        xSemaphoreGive(lcd_mutex);
+            pcd8544_sync_and_gc();
+            xSemaphoreGive(lcd_mutex);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            }
         }
-        }
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
       }
 
@@ -306,6 +353,7 @@ void readKey(void * argumentos){
               
         EventBits_t bits = xEventGroupWaitBits(eventGroup,BIT_START|BIT_RESET|BIT_MODE|BIT_PARCIAL,pdTRUE,pdFALSE,portMAX_DELAY);
                static bool runLocal = false;
+
                 if (BIT_START & bits) {
                     printf("start\n");
                     if(LocalconfigMode == 0){
@@ -324,8 +372,8 @@ void readKey(void * argumentos){
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_START);
                         }
                 }
+
                 if (BIT_RESET & bits) {
-                    printf("reset\n");
                     if(LocalconfigMode == 0){
                     xEventGroupSetBits(time_task_args.event,time_task_args.reset);
                     }
@@ -336,8 +384,8 @@ void readKey(void * argumentos){
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_RESET);
                         }
                 }
+
                 if (BIT_PARCIAL & bits) {
-                    printf("parcial\n");
                     if(LocalconfigMode == 0){
                     xEventGroupSetBits(time_task_args.event,time_task_args.parcial);
                     }
@@ -348,19 +396,40 @@ void readKey(void * argumentos){
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_PARCIAL);
                         }
                 }
+
                 if (BIT_MODE & bits) {
-                    printf("modo\n");
-                    if(LocalconfigMode<3) {
+                    
+                    if(LocalconfigMode<2) {
                         LocalconfigMode++;
                     }
                     else {
                         LocalconfigMode = 0;
                     }
+                    
+                    switch (LocalconfigMode)
+                    {
+                    case 1:
+                       pcd8544_set_pos(0,0);
+                       pcd8544_printf("                                                                                            ");
+                       xEventGroupSetBits(eventGroupSetAlarm, BIT_MODE);
+                        break;
+                    
+                    case 2:
+                       pcd8544_set_pos(0,0);
+                       pcd8544_printf("                                                                                            ");
+                       xEventGroupSetBits(eventGroupSetHour, BIT_MODE);
+                        break;
+                    default:
+                       pcd8544_set_pos(0,0);
+                       pcd8544_printf("                                                                                            ");
+                       break;
+                    }
+
                     xSemaphoreTake(config_mutex, portMAX_DELAY);
                     configMode = LocalconfigMode;
                     xSemaphoreGive(config_mutex);
-                     pcd8544_set_pos(0,0);
-                     pcd8544_printf("                                                                                            ");
+                     //pcd8544_set_pos(0,0);
+                     //pcd8544_printf("                                                                                            ");
                 }
                
             }
