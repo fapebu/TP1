@@ -69,6 +69,13 @@ void configLCD() {
     pcd8544_finalize_frame_buf();
 }
 
+void clearLCD() {
+    pcd8544_set_pos(0,0);
+    pcd8544_printf("                                                                                            ");
+    pcd8544_sync_and_gc();
+    vTaskDelay(pdMS_TO_TICKS(50));
+}
+
 void showHour(void * argumentos){ 
     int configLocal = 0;
    hora_min_t tiempo = {0,0};
@@ -223,9 +230,9 @@ void setHour(void * argumentos){
         else {
             pcd8544_printf(":%d", minutos);
         }
-        
-       //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
         pcd8544_sync_and_gc();
+       vTaskDelay(pdMS_TO_TICKS(50)); 
+        
         }
        
          
@@ -310,6 +317,7 @@ void setAlarm(void * argumentos){
             else {
                 pcd8544_printf(":%d", minutos);
             }
+            pcd8544_sync_and_gc();
             vTaskDelay(pdMS_TO_TICKS(50));
         }
             
@@ -346,7 +354,6 @@ void setAlarm(void * argumentos){
       }
       }
 
-
 void readKey(void * argumentos){
        int LocalconfigMode = 0;
     while (1) {
@@ -367,10 +374,10 @@ void readKey(void * argumentos){
                         } 
                     }else if(LocalconfigMode == 1) {
                             xEventGroupSetBits(eventGroupSetHour,BIT_START);
-                        }
+                    }
                     else if(LocalconfigMode == 2) {
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_START);
-                        }
+                    }
                 }
 
                 if (BIT_RESET & bits) {
@@ -387,7 +394,7 @@ void readKey(void * argumentos){
 
                 if (BIT_PARCIAL & bits) {
                     if(LocalconfigMode == 0){
-                    xEventGroupSetBits(time_task_args.event,time_task_args.parcial);
+                        xEventGroupSetBits(time_task_args.event,time_task_args.parcial);
                     }
                     else if(LocalconfigMode == 1) {
                             xEventGroupSetBits(eventGroupSetHour,BIT_PARCIAL);
@@ -411,17 +418,18 @@ void readKey(void * argumentos){
                     case 1:
                        pcd8544_set_pos(0,0);
                        pcd8544_printf("                                                                                            ");
-                       xEventGroupSetBits(eventGroupSetAlarm, BIT_MODE);
+                       xEventGroupSetBits(eventGroupSetHour, BIT_MODE);
                         break;
                     
                     case 2:
                        pcd8544_set_pos(0,0);
                        pcd8544_printf("                                                                                            ");
-                       xEventGroupSetBits(eventGroupSetHour, BIT_MODE);
+                       xEventGroupSetBits(eventGroupSetAlarm, BIT_MODE);
                         break;
                     default:
                        pcd8544_set_pos(0,0);
                        pcd8544_printf("                                                                                            ");
+                       pcd8544_sync_and_gc();
                        break;
                     }
 
