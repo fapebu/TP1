@@ -50,7 +50,10 @@ static QueueHandle_t sendHourQueue;
 static QueueHandle_t alarmQueue;
 SemaphoreHandle_t lcd_mutex;
 SemaphoreHandle_t config_mutex;
+SemaphoreHandle_t alarm_mutex;
 static int configMode = 0;
+static bool alarmActive = false;
+
 
 void configPin(gpio_num_t pin, gpio_mode_t modo) {
     gpio_set_direction(pin, modo);
@@ -122,8 +125,7 @@ void showTime(void * argumentos){
     static int i = 0; 
     int configLocal = 0;
     while (1) {
-        /*pcd8544_clear_display();
-        pcd8544_finalize_frame_buf(); */
+        
         xQueueReceive(timeQueue, &segundos, portMAX_DELAY); //se blouque hasta que se encolan los datos cada 100ms.
         if (uxQueueMessagesWaiting(laps) > 0) {
                 if(i >= 3) {
@@ -162,16 +164,25 @@ void Alarm(void * argumentos){
         
     EventBits_t bits = xEventGroupWaitBits(eventGroupAlarm,BIT_START|BIT_RESET|BIT_PARCIAL,pdTRUE,pdFALSE,0);
         if (BIT_START & bits) {
-           setLocal = true;
+            setLocal = true;
+            xEventGroupSetBits(eventGroup,BIT_RUN);
+           
         }
         if (BIT_RESET & bits) {
             setLocal = false;
             setAlarm = false;
+             gpio_set_level(PIN_BUZZ, false);
+            xEventGroupSetBits(eventGroup,BIT_STOP);
         }
         
         if (BIT_PARCIAL & bits) {
-           
+            setLocal = false;
+            setAlarm = false;
+            gpio_set_level(PIN_BUZZ, false);
+           xEventGroupSetBits(eventGroupSetAlarm,BIT_RUN);
+           xEventGroupSetBits(eventGroup,BIT_STOP);
         }
+
         if(setLocal){
             setAlarm = !setAlarm;
             gpio_set_level(PIN_BUZZ, setAlarm); 
@@ -273,8 +284,9 @@ void setAlarm(void * argumentos){
   int configLocal = false;
     static int minutos = 0;
     static int horas = 0;
+    bool actualizar = false;
     while (1) {
-        EventBits_t bits = xEventGroupWaitBits(eventGroupSetAlarm,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE,pdTRUE,pdFALSE,portMAX_DELAY);
+        EventBits_t bits = xEventGroupWaitBits(eventGroupSetAlarm,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE|BIT_RUN,pdTRUE,pdFALSE,portMAX_DELAY);
         if (BIT_START & bits) {
            if(minutos >= 60) {
                 minutos = 0;
@@ -289,16 +301,30 @@ void setAlarm(void * argumentos){
                 horas++;
             }
         }
+        if (BIT_RUN & bits) {
+            printf("RUN\n");
+            minutos = minutos + 10;
+            if(minutos >= 60) {
+                minutos = minutos - 60;
+                horas++ ;
+                
+            }
+            actualizar = true; 
+        }
         
-        if (BIT_PARCIAL & bits) {
+        if (BIT_PARCIAL & bits || actualizar) {
+            
             alarmHour.horas = horas;
             alarmHour.minutos = minutos;
            
             xQueueSend(alarmQueue, &alarmHour, portMAX_DELAY);
+            if(!actualizar){
             pcd8544_set_pos(12,4);
             pcd8544_printf("GUARDADO");
             pcd8544_sync_and_gc();
             vTaskDelay(pdMS_TO_TICKS(50));
+            }
+            actualizar = false;
         }
          if (BIT_MODE & bits) {
            pcd8544_set_pos(7,0);
@@ -355,15 +381,19 @@ void setAlarm(void * argumentos){
       }
 
 void readKey(void * argumentos){
-       int LocalconfigMode = 0;
+    int LocalconfigMode = 0;
+    static bool AlarmLocal = false;
     while (1) {
               
-        EventBits_t bits = xEventGroupWaitBits(eventGroup,BIT_START|BIT_RESET|BIT_MODE|BIT_PARCIAL,pdTRUE,pdFALSE,portMAX_DELAY);
+        EventBits_t bits = xEventGroupWaitBits(eventGroup,BIT_START|BIT_RESET|BIT_MODE|BIT_PARCIAL|BIT_RUN|BIT_STOP,pdTRUE,pdFALSE,portMAX_DELAY);
                static bool runLocal = false;
+               if (BIT_START & bits) {
+                   
 
-                if (BIT_START & bits) {
-                    printf("start\n");
-                    if(LocalconfigMode == 0){
+                   if(AlarmLocal) {
+                            printf("start\n");
+                        }
+                   else if(LocalconfigMode == 0){
                         if(runLocal == false) {
                             runLocal = true;
                             xEventGroupSetBits(time_task_args.event,time_task_args.start);
@@ -377,11 +407,16 @@ void readKey(void * argumentos){
                     }
                     else if(LocalconfigMode == 2) {
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_START);
-                    }
+                    } 
+                   
                 }
 
                 if (BIT_RESET & bits) {
-                    if(LocalconfigMode == 0){
+                    if(AlarmLocal) {
+                            xEventGroupSetBits(eventGroupAlarm,BIT_RESET);
+                             printf("detener alarma\n");
+                        }
+                    else if(LocalconfigMode == 0){
                     xEventGroupSetBits(time_task_args.event,time_task_args.reset);
                     }
                     else if(LocalconfigMode == 1) {
@@ -390,10 +425,15 @@ void readKey(void * argumentos){
                     else if(LocalconfigMode == 2) {
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_RESET);
                         }
+                    
                 }
 
                 if (BIT_PARCIAL & bits) {
-                    if(LocalconfigMode == 0){
+                    if(AlarmLocal) {
+                            xEventGroupSetBits(eventGroupAlarm,BIT_PARCIAL);
+                             
+                    }
+                    else if(LocalconfigMode == 0){
                         xEventGroupSetBits(time_task_args.event,time_task_args.parcial);
                     }
                     else if(LocalconfigMode == 1) {
@@ -402,14 +442,20 @@ void readKey(void * argumentos){
                     else if(LocalconfigMode == 2) {
                             xEventGroupSetBits(eventGroupSetAlarm,BIT_PARCIAL);
                         }
+                  
+                }
+                if (BIT_RUN & bits) {
+                    AlarmLocal = true;
+                }
+                if (BIT_STOP & bits) {
+                    AlarmLocal = false;
                 }
 
                 if (BIT_MODE & bits) {
                     
                     if(LocalconfigMode<2) {
                         LocalconfigMode++;
-                    }
-                    else {
+                    }else {
                         LocalconfigMode = 0;
                     }
                     
@@ -493,6 +539,7 @@ static void initKeyTasks(EventGroupHandle_t even) {
 void app_main() {
     lcd_mutex = xSemaphoreCreateMutex();
     config_mutex = xSemaphoreCreateMutex();
+    alarm_mutex = xSemaphoreCreateMutex();
     configLCD();
     configPin(PIN_START,GPIO_MODE_INPUT);
     configPin(PIN_RESET,GPIO_MODE_INPUT);
