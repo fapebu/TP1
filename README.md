@@ -1,4 +1,7 @@
 # Trabajo Práctico 1: Cronómetro Básico
+### TP1 TAG: TP1
+### TP2 TAG: TP2(actualizado)
+### TP FINAL: Branch TP FINAL
 
 ## Requisitos:
 
@@ -15,3 +18,4 @@ cuando está detenida debe permanecer en rojo.
 
 ## Actualizacion:
 Se Agregan eventos y tiempos parciales.
+
