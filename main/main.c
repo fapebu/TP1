@@ -108,9 +108,7 @@ void showHour(void * argumentos){
             else {
                 pcd8544_printf(":%d", minutos);
             }
-        
-       //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
-        pcd8544_sync_and_gc();
+         pcd8544_sync_and_gc();
          xSemaphoreGive(lcd_mutex);
          vTaskDelay(pdMS_TO_TICKS(50));
       }
@@ -168,14 +166,16 @@ void Alarm(void * argumentos){
             xEventGroupSetBits(eventGroup,BIT_RUN);
            
         }
-        if (BIT_RESET & bits) {
+        if (BIT_RESET & bits) { //detenemos la alarma
+            printf("detener alarma\n");
             setLocal = false;
             setAlarm = false;
              gpio_set_level(PIN_BUZZ, false);
+            xEventGroupSetBits(eventGroupSetAlarm,BIT_STOP);
             xEventGroupSetBits(eventGroup,BIT_STOP);
         }
         
-        if (BIT_PARCIAL & bits) {
+        if (BIT_PARCIAL & bits) { //posponemos 10 min 
             setLocal = false;
             setAlarm = false;
             gpio_set_level(PIN_BUZZ, false);
@@ -192,7 +192,7 @@ void Alarm(void * argumentos){
         }
 }
 
-void setHour(void * argumentos){ 
+void setHour(void * argumentos){  //configuracion de la hora
    
     bool configLocal = false;
     static int minutos = 0;
@@ -201,14 +201,14 @@ void setHour(void * argumentos){
         
     EventBits_t bits = xEventGroupWaitBits(eventGroupSetHour,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE,pdTRUE,pdFALSE,portMAX_DELAY);
         if (BIT_START & bits) {
-            if(minutos >= 60) {
+            if(minutos > 59) {
                 minutos = 0;
             }else{
                 minutos++;
             }
         }
         if (BIT_RESET & bits) {
-            if(horas >= 24) {
+            if(horas > 23) {
                 horas = 0;
             }else{
                 horas++;
@@ -227,7 +227,7 @@ void setHour(void * argumentos){
         if(BIT_MODE & bits) {
             pcd8544_set_pos(7,0);
         pcd8544_printf("CONFIG HORA");
-        pcd8544_set_pos(12,3);
+        pcd8544_set_pos(22,3);
         if(horas < 10) {
             pcd8544_printf("0");
         }
@@ -255,7 +255,7 @@ void setHour(void * argumentos){
         
         pcd8544_set_pos(7,0);
         pcd8544_printf("CONFIG HORA");
-        pcd8544_set_pos(12,3);
+        pcd8544_set_pos(22,3);
         if(horas < 10) {
             pcd8544_printf("0");
         }
@@ -270,7 +270,6 @@ void setHour(void * argumentos){
             pcd8544_printf(":%d", minutos);
         }
         
-       //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
         pcd8544_sync_and_gc();
         xSemaphoreGive(lcd_mutex);
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -280,28 +279,28 @@ void setHour(void * argumentos){
       }
     }
 
-void setAlarm(void * argumentos){ 
+void setAlarm(void * argumentos){ //seteo de la alarma
   int configLocal = false;
     static int minutos = 0;
     static int horas = 0;
     bool actualizar = false;
     while (1) {
-        EventBits_t bits = xEventGroupWaitBits(eventGroupSetAlarm,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE|BIT_RUN,pdTRUE,pdFALSE,portMAX_DELAY);
+        EventBits_t bits = xEventGroupWaitBits(eventGroupSetAlarm,BIT_START|BIT_RESET|BIT_PARCIAL|BIT_MODE|BIT_RUN|BIT_STOP,pdTRUE,pdFALSE,portMAX_DELAY);
         if (BIT_START & bits) {
-           if(minutos >= 60) {
+           if(minutos > 59) {
                 minutos = 0;
             }else{
                 minutos++;
             }
         }
         if (BIT_RESET & bits) {
-            if(horas >= 24) {
+            if(horas > 23) {
                 horas = 0;
             }else{
                 horas++;
             }
         }
-        if (BIT_RUN & bits) {
+        if (BIT_RUN & bits) { //posponemos por 10 min
             printf("RUN\n");
             minutos = minutos + 10;
             if(minutos >= 60) {
@@ -309,6 +308,12 @@ void setAlarm(void * argumentos){
                 horas++ ;
                 
             }
+            actualizar = true; 
+        }
+        if (BIT_STOP & bits) { //apagamos la alarma
+            printf("STOP ALRMA\n");
+            minutos = 0;
+            horas = 0;
             actualizar = true; 
         }
         
@@ -329,7 +334,7 @@ void setAlarm(void * argumentos){
          if (BIT_MODE & bits) {
            pcd8544_set_pos(7,0);
                 pcd8544_printf("CONFIG ALARM");
-                pcd8544_set_pos(12,3);
+                pcd8544_set_pos(22,3);
                 if(horas < 10) {
                     pcd8544_printf("0");
                 }
@@ -355,7 +360,7 @@ void setAlarm(void * argumentos){
             if (xSemaphoreTake(lcd_mutex, portMAX_DELAY)) {
                 pcd8544_set_pos(7,0);
                 pcd8544_printf("CONFIG ALARM");
-                pcd8544_set_pos(12,3);
+                pcd8544_set_pos(22,3);
                 if(horas < 10) {
                     pcd8544_printf("0");
                 }
@@ -370,7 +375,7 @@ void setAlarm(void * argumentos){
                 pcd8544_printf(":%d", minutos);
             }
         
-       //vTaskDelay(pdMS_TO_TICKS(200)); // por ejemplo, 5 fps
+      
             pcd8544_sync_and_gc();
             xSemaphoreGive(lcd_mutex);
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -380,7 +385,7 @@ void setAlarm(void * argumentos){
       }
       }
 
-void readKey(void * argumentos){
+void readKey(void * argumentos){  //eventos de las teclas
     int LocalconfigMode = 0;
     static bool AlarmLocal = false;
     while (1) {
@@ -462,28 +467,23 @@ void readKey(void * argumentos){
                     switch (LocalconfigMode)
                     {
                     case 1:
-                       pcd8544_set_pos(0,0);
-                       pcd8544_printf("                                                                                            ");
+                       clearLCD();
                        xEventGroupSetBits(eventGroupSetHour, BIT_MODE);
                         break;
                     
                     case 2:
-                       pcd8544_set_pos(0,0);
-                       pcd8544_printf("                                                                                            ");
+                       clearLCD();
                        xEventGroupSetBits(eventGroupSetAlarm, BIT_MODE);
                         break;
                     default:
-                       pcd8544_set_pos(0,0);
-                       pcd8544_printf("                                                                                            ");
-                       pcd8544_sync_and_gc();
+                       clearLCD();
                        break;
                     }
 
                     xSemaphoreTake(config_mutex, portMAX_DELAY);
                     configMode = LocalconfigMode;
                     xSemaphoreGive(config_mutex);
-                     //pcd8544_set_pos(0,0);
-                     //pcd8544_printf("                                                                                            ");
+                     
                 }
                
             }
@@ -587,11 +587,11 @@ void app_main() {
 
     xTaskCreate(HourTask, "HourTask", 2 * configMINIMAL_STACK_SIZE, (void *)&hour_task_args, tskIDLE_PRIORITY + 5, NULL);
     xTaskCreate(TimeTask, "TimeTask", 2 * configMINIMAL_STACK_SIZE, (void *)&time_task_args, tskIDLE_PRIORITY + 5, NULL);
-    xTaskCreate(readKey, "keys", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(readKey, "keys", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
     xTaskCreate(Blinking, "Led", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
-    xTaskCreate(showTime, "show", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
-    xTaskCreate(showHour, "show2", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
-    xTaskCreate(setHour, "setHour", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
-    xTaskCreate(setAlarm, "setAlarm", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
-    xTaskCreate(Alarm, "Alarm", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(showTime, "show", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(showHour, "show2", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(setHour, "setHour", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(setAlarm, "setAlarm", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(Alarm, "Alarm", 2 * configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 4, NULL);
 }

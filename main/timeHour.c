@@ -14,7 +14,7 @@ void HourTask(void *arg){
     hora_min_t alarm = { .horas = hr, .minutos = min };
     xQueueSend(args->sendQueue, &min, portMAX_DELAY);
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xDelay = pdMS_TO_TICKS(10); // pasar a 1 segundo
+    const TickType_t xDelay = pdMS_TO_TICKS(1000); // pasar a 1 segundo
   
 while (1) {
             
@@ -24,10 +24,11 @@ while (1) {
        if (segundos >= 60) {
             segundos = 0;
                 min++;
-            if (min >= 60) {
+            if (min > 60) {
                 min = 0;
                 hr = (hr + 1) % 24;
             }
+             }
             // Prepara y envía la hora completa
             if(xQueueReceive(args->receiveQueue, &time, 0)){
 
@@ -43,11 +44,13 @@ while (1) {
                 printf("alarma\n");
             }    
                 
-                time.horas   = hr;
+               
+       
+         time.horas   = hr;
                 time.minutos = min;
                
-            xQueueSend(args->sendQueue, &time, portMAX_DELAY);
-        }
+           xQueueSend(args->sendQueue, &time, portMAX_DELAY);
+         //xQueueSend(args->sendQueue, &time, portMAX_DELAY);
     }
         
 } 

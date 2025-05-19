@@ -10,6 +10,7 @@ void TimeTask(void *arg){
     time_task_t * args = (time_task_t *)arg;
     EventBits_t events;
     TickType_t last_counter;
+    xQueueSend(args->timeQueue, &elapsedTime, pdMS_TO_TICKS(30));
 while (1) {
      while (!runing)
      {
