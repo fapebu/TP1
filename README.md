@@ -1,20 +1,4 @@
-# Trabajo Práctico 1: Cronómetro Básico
-
-## Requisitos:
-
-Implementar un cronómetro utilizando más de una tarea de FreeRTOS  
-que muestre en pantalla el valor de la cuenta actual con una resolución de  
-décimas de segundo.  
-
-El cronómetro debe iniciar y detener la cuenta al presionar un pulsador  
-conectado a la placa. Si está detenido, al presionar un segundo contador  
-debe volver a cero.  
-
-Mientras la cuenta está activa un led RGB debe parpadear en verde y  
-cuando está detenida debe permanecer en rojo.
-
-## Actualizacion:
-Se Agregan eventos y tiempos parciales.
+# Trabajo Práctico FINAL: Cronómetro Básico + RELOJ
 
 ## Nuevas Funciones:
 Se agrega un reloj en tiempo real, una alarma que suena a través de un buzzer, y pantallas de configuración para la hora actual y la alarma.
